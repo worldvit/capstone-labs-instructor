@@ -184,7 +184,7 @@ check_summary() {
     printf '  결과: %s%d/%d%s  통과\n' "$C_G" "$CHECK_PASS" "$total" "$C_0"
     return 0
   else
-    printf '  결과: %s%d/%d%s  →  repair.sh 실행 권장\n' "$C_R" "$CHECK_PASS" "$total" "$C_0"
+    printf '  결과: %s%d/%d%s  →  FAIL 항목을 다시 구성하십시오\n' "$C_R" "$CHECK_PASS" "$total" "$C_0"
     return 1
   fi
 }

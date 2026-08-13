@@ -28,6 +28,11 @@ printf '%b\n\n' "$SUMMARY"
 if [ "$TOTAL_FAIL" -eq 0 ]; then
   ok "Lab 1~$TO 전체 통과"
 else
-  err "미충족 랩 ${TOTAL_FAIL}개 — 해당 랩의 repair.sh를 실행하세요."
+  err "미충족 랩 ${TOTAL_FAIL}개"
+  if [ -f "$ROOT_DIR/build-all.sh" ]; then
+    log "  복구: bash lab<번호>-*/repair.sh"
+  else
+    log "  위 FAIL 항목을 실습 문서에 따라 다시 구성하십시오."
+  fi
   exit 1
 fi

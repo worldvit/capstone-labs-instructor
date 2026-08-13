@@ -23,3 +23,11 @@ _BS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_BS_DIR/state-sync.sh"
 
 load_state
+
+# ACCOUNT_ID 확보 — verify 계열은 guard를 거치지 않으므로 여기서 채운다.
+# 실패해도 진행한다(가드가 있는 스크립트는 guard가 다시 검사한다).
+if [ -z "${ACCOUNT_ID:-}" ]; then
+  ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)"
+  [ "${ACCOUNT_ID:-}" = "None" ] && ACCOUNT_ID=""
+  export ACCOUNT_ID
+fi
