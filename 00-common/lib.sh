@@ -15,7 +15,9 @@ ok()   { printf '%s[✔]%s %s\n' "$C_G" "$C_0" "$*"; }
 skip() { printf '%s[=]%s %s (이미 존재)\n' "$C_Y" "$C_0" "$*"; }
 warn() { printf '%s[!]%s %s\n' "$C_Y" "$C_0" "$*" >&2; }
 err()  { printf '%s[✘]%s %s\n' "$C_R" "$C_0" "$*" >&2; }
-die()  { err "$*"; exit 1; }
+# 대화형 셸에서는 exit 대신 return 1 — 로그인 셸이 끊기지 않게 한다.
+# 호출부는  die "..." || return 1  형태로 쓴다.
+die()  { err "$*"; if [ -n "${CAPSTONE_INTERACTIVE:-}" ]; then return 1; fi; exit 1; }
 
 banner() {
   printf '\n%s================================================================%s\n' "$C_B" "$C_0"
@@ -75,7 +77,7 @@ need_state() {
   if [ ${#missing[@]} -gt 0 ]; then
     err "선행 랩의 산출물이 없습니다: ${missing[*]}"
     err "state 파일: $STATE_FILE"
-    die "먼저 실행하세요:  bash build-all.sh <이번랩번호-1>"
+    die "먼저 실행하세요:  bash build-all.sh <이번랩번호-1>" || return 1
   fi
 }
 

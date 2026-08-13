@@ -5,7 +5,17 @@
 # ============================================================
 
 # ---------- 필수: 실행 대상 지정 ----------
-export AWS_PROFILE="${AWS_PROFILE:-capstone}"   # 반드시 지정. 기본 프로파일 혼용 사고 방지
+# 로컬 PC에서는 전용 프로파일을 강제해 기본 프로파일 혼용 사고를 막는다.
+# CloudShell·EC2 인스턴스 역할처럼 앰비언트 자격 증명을 쓰는 환경에서는 강제하지 않는다.
+if [ -n "${AWS_PROFILE:-}" ]; then
+  export AWS_PROFILE                                   # 사용자가 명시한 값 존중
+elif [ "${AWS_EXECUTION_ENV:-}" = "CloudShell" ] \
+  || [ -n "${AWS_CONTAINER_CREDENTIALS_FULL_URI:-}" ] \
+  || [ -n "${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI:-}" ]; then
+  unset AWS_PROFILE                                    # 앰비언트 자격 증명 사용
+else
+  export AWS_PROFILE="capstone"
+fi
 export REGION="${REGION:-ap-northeast-2}"
 export AWS_REGION="$REGION"
 export AWS_DEFAULT_REGION="$REGION"
