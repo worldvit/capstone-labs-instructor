@@ -47,13 +47,16 @@ for d in "$SRC"/lab*/; do
   [ -d "$d" ] || continue
   lab="$(basename "$d")"
   mkdir -p "$DEST/$lab"
-  for f in verify.sh teardown.sh; do
+  # verify.sh  : 자기 채점
+  # teardown.sh : 정리(비용 관리)
+  # analyze.sh  : 로그 분석 — 읽기 전용이라 학생에게 주어도 안전하다
+  for f in verify.sh teardown.sh analyze.sh; do
     [ -f "$d/$f" ] && cp "$d/$f" "$DEST/$lab/"
   done
   # setup-*.sh 는 build.sh 가 쓰는 구성 스크립트다. 학생에게 내보내지 않는다.
   n=$((n+1))
 done
-ok "랩 ${n}개의 verify.sh / teardown.sh 복사"
+ok "랩 ${n}개의 verify.sh / teardown.sh / analyze.sh 복사"
 
 # ---------- 5. 유출 검사 ----------
 leak=0
@@ -123,6 +126,20 @@ bash verify-all.sh 5              # Lab 1~5 전체 진단
 ```
 
 `PASS` / `FAIL`이 항목별로 나옵니다. `FAIL`이 뜨면 그 항목만 다시 구성하면 됩니다.
+
+## 로그 분석
+
+Lab 9 이후에는 수집된 로그를 직접 읽어 봅니다. 구축이 끝이 아니라 해석이 시작입니다.
+
+```bash
+bash lab09-observability/analyze.sh --list    # 분석 항목 보기
+bash lab09-observability/analyze.sh           # 전체 실행
+bash lab09-observability/analyze.sh 5         # 5번 항목만
+MINUTES=360 bash lab09-observability/analyze.sh   # 기간 넓히기
+```
+
+각 항목은 "무엇을 묻는가 → 어떻게 묻는가 → 무엇을 읽어내는가" 순으로 나옵니다.
+데이터가 비어 있으면 트래픽을 만든 뒤 3~5분 기다리십시오.
 
 ## 다른 PC에서 이어하기
 

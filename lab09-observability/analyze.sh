@@ -62,10 +62,14 @@ insights() { # insights <로그그룹> <쿼리> [최대대기초]
   local lg="$1" q="$2" maxw="${3:-60}"
   local qid status waited=0
 
+  local qerr
+  qerr="$(mktemp)"
   qid="$(aws logs start-query --log-group-name "$lg" \
         --start-time "$START_MS" --end-time "$END_MS" \
-        --query-string "$q" --query 'queryId' --output text 2>/dev/null)" \
-    || { warn "쿼리 시작 실패 (로그 그룹: $lg)"; return 1; }
+        --query-string "$q" --query 'queryId' --output text 2>"$qerr")" \
+    || { warn "쿼리 시작 실패 (로그 그룹: $lg)"
+         sed 's/^/      /' "$qerr" >&2; rm -f "$qerr"; return 1; }
+  rm -f "$qerr"
 
   while [ "$waited" -lt "$maxw" ]; do
     status="$(_q aws logs get-query-results --query-id "$qid" --query 'status' --output text)"
@@ -106,8 +110,8 @@ a1() {
 fields @timestamp, @message
 | filter @logStream like /nginx\/access/
 | parse @message "* * * [*] \"* * *\" * *" as ip, ident, user, ts, method, path, proto, status, bytes
-| stats count(*) as 건수 by status as 상태코드
-| sort 건수 desc'
+| stats count(*) as cnt by status
+| sort cnt desc'
   read_it "2xx 만 있으면 정상. 5xx 가 있으면 App 계층, 4xx 가 많으면 잘못된 요청이나 스캔."
 }
 
@@ -118,8 +122,8 @@ a2() {
 fields @timestamp, @message
 | filter @logStream like /nginx\/access/
 | parse @message "* * * [*] \"* * *\" * *" as ip, ident, user, ts, method, path, proto, status, bytes
-| stats count(*) as 요청수, avg(bytes) as 평균바이트, max(bytes) as 최대바이트 by path as 경로
-| sort 요청수 desc
+| stats count(*) as requests, avg(bytes) as avg_bytes, max(bytes) as max_bytes by path
+| sort requests desc
 | limit 10'
   read_it "평균 바이트가 큰 경로가 대역폭을 먹는다. Lab 11에서 CloudFront 캐싱 대상 후보."
 }
@@ -130,8 +134,8 @@ a3() {
   insights "$N_LOGGROUP_APP" '
 fields @timestamp
 | filter @logStream like /tomcat/
-| stats count(*) as 로그건수 by @logStream as 인스턴스
-| sort 로그건수 desc'
+| stats count(*) as log_lines by @logStream
+| sort log_lines desc'
   read_it "두 인스턴스가 비슷해야 정상. 한쪽만 나오면 다른 쪽 Tomcat 이 죽었거나 upstream 에서 빠진 것."
   printf '    %s실측:%s 다음 명령으로 실제 분산을 확인하십시오.\n' "$C_B" "$C_0"
   printf '      for i in $(seq 1 10); do curl -s -H "Connection: close" http://%s/ \\\n' "${NGINX_IP:-<nginx-ip>}"
@@ -156,8 +160,8 @@ a5() {
   insights "$N_LOGGROUP_FLOW" '
 fields @timestamp, srcAddr, dstAddr, dstPort, protocol, action
 | filter action = "REJECT"
-| stats count(*) as 거부건수 by dstPort as 대상포트, srcAddr as 출발지
-| sort 거부건수 desc
+| stats count(*) as rejects by dstPort, srcAddr
+| sort rejects desc
 | limit 15'
   read_it "22·3389 로의 외부 시도는 인터넷 스캔이다. 내부 IP 가 8080·5432 로 거부되면 SG 설정을 점검할 것."
 }
@@ -168,8 +172,8 @@ a6() {
   insights "$N_LOGGROUP_FLOW" '
 fields srcAddr, dstAddr, dstPort, action, bytes
 | filter action = "ACCEPT" and (dstPort = 8080 or dstPort = 5432 or dstPort = 80)
-| stats count(*) as 연결수, sum(bytes) as 총바이트 by dstPort as 포트, srcAddr as 출발지, dstAddr as 목적지
-| sort 연결수 desc
+| stats count(*) as flows, sum(bytes) as total_bytes by dstPort, srcAddr, dstAddr
+| sort flows desc
 | limit 20'
   read_it "80 은 인터넷→nginx, 8080 은 nginx→Tomcat, 5432 는 Tomcat→DB 여야 한다.
              다른 조합이 보이면 설계에 없는 경로가 열린 것이다."
