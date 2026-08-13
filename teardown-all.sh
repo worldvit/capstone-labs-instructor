@@ -34,12 +34,27 @@ banner "역순 삭제: Lab $FROM → 1   (접두사 $PREFIX)"
 warn "CloudFront 배포 비활성화에만 15분 이상 소요될 수 있습니다."
 confirm_destroy "Lab $FROM 부터 Lab 1 까지 모든 리소스를 삭제합니다."
 export FORCE=1   # 개별 스크립트에서 재확인하지 않음
+FAILED=""
 
 for i in $(seq "$FROM" -1 1); do
   d="${LABS[$i]}"
   banner "▼ Lab $i — $d"
-  bash "$ROOT_DIR/$d/teardown.sh" || warn "Lab $i teardown 중 오류 (계속 진행)"
+  if bash "$ROOT_DIR/$d/teardown.sh"; then
+    ok "Lab $i ($d) 삭제 완료"
+  else
+    FAILED="${FAILED} ${d}"
+    warn "Lab $i ($d) 삭제 중 오류 — 계속 진행합니다"
+    warn "  앞 단계가 남아 있으면 뒤 단계도 실패할 수 있습니다."
+  fi
   load_state
 done
-banner "전체 삭제 완료"
-log "남은 상태: $STATE_FILE"
+banner "삭제 요약"
+if [ -z "${FAILED// /}" ]; then
+  ok "Lab $FROM~1 전부 삭제 완료"
+else
+  err "오류가 난 랩:${FAILED}"
+  log "  남은 리소스 확인 후 개별 teardown 을 다시 실행하십시오."
+  log "  잔여 조회: aws resourcegroupstaggingapi get-resources --tag-filters Key=Owner,Values=$PREFIX \\"
+  log "               --query 'ResourceTagMappingList[].ResourceARN' --output text"
+fi
+log "남은 상태 파일: $STATE_FILE"

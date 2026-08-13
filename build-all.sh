@@ -37,9 +37,29 @@ FROM="$(resolve_lab "${2:-1}")" || die "알 수 없는 랩: ${2:-}"
 
 
 banner "누적 구축: Lab $FROM ~ $TO   (접두사 $PREFIX / 리전 $REGION)"
+# 원격 state 동기화.
+# 로컬이 더 최신인데 원격이 덮어쓰면 이미 만든 리소스의 ID 를 잃는다(실제로 겪은 사고).
+# 로컬이 비었을 때만 자동으로 내려받고, 다르면 물어본다.
 if [ "$STATE_SYNC" = "1" ]; then
-  log "STATE_SYNC=1 — 원격 state를 먼저 내려받습니다"
-  state_pull || true
+  # grep -c 는 일치가 없으면 0 을 출력하고 종료코드 1 을 낸다.
+  # `|| echo 0` 을 붙이면 "0\n0" 이 되어 산술 비교가 깨진다.
+  LOCAL_KEYS=0
+  if [ -f "$STATE_FILE" ]; then
+    LOCAL_KEYS="$(grep -c '^export ' "$STATE_FILE" 2>/dev/null)" || LOCAL_KEYS=0
+  fi
+  LOCAL_KEYS="${LOCAL_KEYS//[^0-9]/}"; : "${LOCAL_KEYS:=0}"
+  if [ "${LOCAL_KEYS:-0}" -eq 0 ]; then
+    log "로컬 state 가 비어 있어 원격에서 내려받습니다"
+    state_pull || true
+  elif [ "${STATE_PULL:-ask}" = "force" ]; then
+    warn "STATE_PULL=force — 원격으로 로컬을 덮어씁니다"
+    state_pull || true
+  elif [ "${STATE_PULL:-ask}" = "skip" ]; then
+    log "STATE_PULL=skip — 로컬 state 를 그대로 씁니다 (${LOCAL_KEYS}개 키)"
+  else
+    log "로컬 state 에 ${LOCAL_KEYS}개 키가 있습니다. 원격을 내려받지 않습니다."
+    log "  원격으로 덮어쓰려면:  STATE_PULL=force ...  /  비교:  bash 00-common/state-sync.sh status"
+  fi
 fi
 START_TS=$(date +%s)
 for i in $(seq "$FROM" "$TO"); do
@@ -48,7 +68,7 @@ for i in $(seq "$FROM" "$TO"); do
   t0=$(date +%s)
   if bash "$ROOT_DIR/$d/build.sh"; then
     ok "Lab $i 성공 ($(( $(date +%s) - t0 ))초)"
-    [ "$STATE_SYNC" = "1" ] && state_push "lab$(printf '%02d' "$i")-done" || true
+    [ "$STATE_SYNC" = "1" ] && state_push "${d}-done" || true
   else
     err "Lab $i 실패 — 중단합니다."
     err "  진단:  bash $d/verify.sh"
