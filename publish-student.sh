@@ -50,6 +50,7 @@ for d in "$SRC"/lab*/; do
   for f in verify.sh teardown.sh; do
     [ -f "$d/$f" ] && cp "$d/$f" "$DEST/$lab/"
   done
+  # setup-*.sh 는 build.sh 가 쓰는 구성 스크립트다. 학생에게 내보내지 않는다.
   n=$((n+1))
 done
 ok "랩 ${n}개의 verify.sh / teardown.sh 복사"
@@ -58,7 +59,8 @@ ok "랩 ${n}개의 verify.sh / teardown.sh 복사"
 leak=0
 while IFS= read -r f; do
   warn "유출 의심 파일: ${f#$DEST/}"; leak=$((leak+1))
-done < <(find "$DEST" -name 'build*.sh' -o -name 'repair.sh' -o -name 'mock-aws' -o -name 'test-common.sh' 2>/dev/null)
+done < <(find "$DEST" \( -name 'build*.sh' -o -name 'repair.sh' -o -name 'mock-aws' \
+           -o -name 'test-common.sh' -o -name 'setup-*.sh' -o -name 'publish-student.sh' \) 2>/dev/null)
 [ "$leak" -eq 0 ] && ok "유출 검사 통과 — build/repair 계열 없음" \
                   || die "유출 파일 ${leak}건 — 스크립트를 점검하십시오"
 
