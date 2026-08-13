@@ -71,7 +71,7 @@ state_push() {
   local ver
   ver="$(aws s3api put-object --bucket "$b" --key "$(state_s3_key)" \
       --body "$STATE_FILE" --content-type text/plain \
-      --metadata "note=${note},host=$(hostname),at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --metadata "note=${note},host=${HOSTNAME:-$(uname -n 2>/dev/null || echo unknown)},at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       --query VersionId --output text 2>/dev/null)" || { err "업로드 실패"; return 1; }
   ok "state 백업 완료 → $(state_s3_uri)"
   log "  버전 $ver  ($note)"
