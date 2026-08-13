@@ -50,13 +50,13 @@ for d in "$SRC"/lab*/; do
   # verify.sh  : 자기 채점
   # teardown.sh : 정리(비용 관리)
   # analyze.sh  : 로그 분석 — 읽기 전용이라 학생에게 주어도 안전하다
-  for f in verify.sh teardown.sh analyze.sh; do
+  for f in verify.sh teardown.sh analyze.sh loadtest.sh; do
     [ -f "$d/$f" ] && cp "$d/$f" "$DEST/$lab/"
   done
   # setup-*.sh 는 build.sh 가 쓰는 구성 스크립트다. 학생에게 내보내지 않는다.
   n=$((n+1))
 done
-ok "랩 ${n}개의 verify.sh / teardown.sh / analyze.sh 복사"
+ok "랩 ${n}개의 verify.sh / teardown.sh / analyze.sh / loadtest.sh 복사"
 
 # ---------- 5. 유출 검사 ----------
 leak=0
