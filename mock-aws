@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""
+aws CLI 목(mock). 실제 호출 없이 스크립트 로직을 실행 검증한다.
+- 호출을 /tmp/mock-aws.log 에 기록
+- 조회 계열은 상태 저장소에서 값을 돌려주고, 없으면 빈 문자열(None)
+- 생성 계열은 그럴듯한 ID를 만들어 저장
+"""
+import sys, os, json, re, hashlib, pathlib
+
+LOG = pathlib.Path("/tmp/mock-aws.log")
+DB  = pathlib.Path("/tmp/mock-aws-db.json")
+argv = sys.argv[1:]
+
+with LOG.open("a") as f:
+    f.write(" ".join(argv) + "\n")
+
+db = json.loads(DB.read_text()) if DB.exists() else {}
+def save(): DB.write_text(json.dumps(db))
+
+def opt(name, default=None):
+    if name in argv:
+        i = argv.index(name)
+        if i + 1 < len(argv) and not argv[i+1].startswith("--"):
+            return argv[i+1]
+        return True
+    return default
+
+def ident(prefix, *seed):
+    h = hashlib.md5(("|".join(map(str, seed))).encode()).hexdigest()[:17]
+    return f"{prefix}-{h}"
+
+if not argv:
+    sys.exit(1)
+
+if argv[0] == "--version":
+    print("aws-cli/2.17.0 Python/3.12 Linux/6.1 mock/1.0"); sys.exit(0)
+
+svc = argv[0]
+cmd = argv[1] if len(argv) > 1 else ""
+key = f"{svc}:{cmd}:" + "|".join(a for a in argv[2:] if not a.startswith("--query"))
+
+# ---- 계정/자격 증명 ----
+if svc == "sts" and cmd == "get-caller-identity":
+    print(json.dumps({
+        "Account": os.environ.get("MOCK_ACCOUNT", "676206941602"),
+        "Arn": "arn:aws:iam::676206941602:user/instructor",
+        "UserId": "AIDAMOCK"}))
+    sys.exit(0)
+
+if svc == "configure" and cmd == "get":
+    print(os.environ.get("REGION", "ap-northeast-2")); sys.exit(0)
+
+if svc == "ec2" and cmd == "describe-availability-zones":
+    r = os.environ.get("REGION", "ap-northeast-2")
+    print(f"{r}a\t{r}b\t{r}c\t{r}d"); sys.exit(0)
+
+if svc == "ssm" and cmd == "get-parameter":
+    print("ami-0mockamazonlinux2023"); sys.exit(0)
+
+# ---- describe/get/list : 미리 만들어 둔 것이 있으면 반환 ----
+READ = ("describe", "get", "list", "head")
+CREATE = ("create", "allocate", "run", "put", "add", "attach", "associate",
+          "authorize", "subscribe", "start", "modify", "update", "tag",
+          "register", "set", "enable", "cp", "wait", "send")
+
+def created_key():
+    """생성 호출을 식별할 안정적 키 — 이름/식별자 기반"""
+    for flag in ("--name", "--bucket", "--role-name", "--group-name", "--queue-name",
+                 "--function-name", "--db-cluster-identifier", "--db-instance-identifier",
+                 "--instance-profile-name", "--auto-scaling-group-name",
+                 "--launch-template-name", "--backup-vault-name", "--db-subnet-group-name",
+                 "--log-group-name", "--dashboard-name", "--topic-arn", "--api-id"):
+        v = opt(flag)
+        if isinstance(v, str):
+            return f"{svc}:{flag}:{v}"
+    # Name 태그
+    m = re.search(r"Value=([\w\-./]+)", " ".join(argv))
+    if m:
+        return f"{svc}:{cmd}:{m.group(1)}"
+    return f"{svc}:{cmd}"
+
+action = cmd.split("-")[0]
+
+if action in READ:
+    hit = db.get(created_key())
+    if hit:
+        print(hit); sys.exit(0)
+    # 존재하지 않음을 뜻하는 응답
+    q = opt("--query", "")
+    if isinstance(q, str) and ("length(" in q or "Quantity" in q):
+        print("0"); sys.exit(0)
+    if cmd.startswith("head") or cmd.startswith("get-"):
+        sys.exit(254)          # NotFound 계열
+    print("None"); sys.exit(0)
+
+if action in CREATE:
+    PFX = {
+        "create-vpc": "vpc", "create-subnet": "subnet", "create-internet-gateway": "igw",
+        "create-nat-gateway": "nat", "allocate-address": "eipalloc",
+        "create-route-table": "rtb", "create-security-group": "sg",
+        "create-network-acl": "acl", "run-instances": "i",
+        "create-vpc-endpoint": "vpce", "create-transit-gateway": "tgw",
+        "create-transit-gateway-vpc-attachment": "tgw-attach",
+    }
+    p = PFX.get(cmd)
+    val = ident(p, key) if p else "arn:aws:mock:::" + cmd
+    if cmd == "create-distribution":
+        val = "E1MOCKDIST"
+    db[created_key()] = val
+    save()
+    print(val); sys.exit(0)
+
+# delete/revoke/terminate/stop 등
+if action in ("delete", "revoke", "terminate", "release", "remove", "detach",
+              "disassociate", "deregister", "stop", "untag", "rm", "unsubscribe"):
+    db.pop(created_key(), None); save()
+    print(""); sys.exit(0)
+
+print(""); sys.exit(0)
