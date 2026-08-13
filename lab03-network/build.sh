@@ -23,32 +23,65 @@ mk_igw() { # 이름 VPC_ID 키
 mk_igw "$N_IGW_SVC"  "$VPC_SVC"  IGW_SVC
 mk_igw "$N_IGW_MGMT" "$VPC_MGMT" IGW_MGMT
 
-# ---------- 2. NAT 게이트웨이 (가용 영역당 1개, 총 4개) ----------
-mk_nat() { # 이름 퍼블릭서브넷ID 키
-  local name="$1" sn="$2" key="$3" id alloc
-  id="$(natgw_id_by_name "$name")"
-  if [ -n "$id" ]; then skip "NAT $name ($id)"; save_state "$key" "$id"; return; fi
-  alloc="$(eip_alloc_by_name "${name}-eip")"
-  if [ -z "$alloc" ]; then
-    alloc="$(aws ec2 allocate-address --domain vpc \
-             --tag-specifications "$(tagspec elastic-ip "${name}-eip" $LAB)" \
-             --query 'AllocationId' --output text)"
-    ok "EIP 할당: ${name}-eip ($alloc)"
-  fi
-  id="$(aws ec2 create-nat-gateway --subnet-id "$sn" --allocation-id "$alloc" \
-        --tag-specifications "$(tagspec natgateway "$name" $LAB)" \
-        --query 'NatGateway.NatGatewayId' --output text)"
-  ok "NAT 생성 요청: $name ($id)"
-  save_state "$key" "$id"
-  save_state "${key}_EIP" "$alloc"
-}
-mk_nat "${PREFIX}-nat-svc-a"  "$SN_SVC_PUB_A"  NAT_SVC_A
-mk_nat "${PREFIX}-nat-svc-c"  "$SN_SVC_PUB_C"  NAT_SVC_C
-mk_nat "${PREFIX}-nat-mgmt-a" "$SN_MGMT_PUB_A" NAT_MGMT_A
-mk_nat "${PREFIX}-nat-mgmt-c" "$SN_MGMT_PUB_C" NAT_MGMT_C
+# ---------- 2. NAT 게이트웨이 ----------
+# NAT_MODE=regional : VPC당 1개. 모든 AZ로 자동 확장. 퍼블릭 서브넷·EIP 불필요.
+# NAT_MODE=zonal    : AZ당 1개. 퍼블릭 서브넷에 배치하고 EIP를 직접 할당.
+log "NAT 방식: $NAT_MODE"
+
+if [ "$NAT_MODE" = "regional" ]; then
+  # CLI가 이 기능을 지원하는지 먼저 확인한다(2025-11 출시).
+  aws ec2 create-nat-gateway help 2>/dev/null | grep -q -- '--availability-mode' \
+    || aws ec2 create-nat-gateway --generate-cli-skeleton 2>/dev/null | grep -q 'AvailabilityMode' \
+    || warn "이 AWS CLI가 --availability-mode를 지원하지 않을 수 있습니다. 실패 시 NAT_MODE=zonal 로 실행하십시오."
+
+  mk_rnat() { # 이름 VPC_ID 키
+    local name="$1" vpc="$2" key="$3" id e
+    id="$(natgw_id_by_name "$name")"
+    if [ -n "$id" ]; then skip "Regional NAT $name ($id)"; save_state "$key" "$id"; return 0; fi
+    e="$(aws ec2 create-nat-gateway --availability-mode regional --vpc-id "$vpc" \
+          --tag-specifications "$(tagspec natgateway "$name" $LAB)" \
+          --query 'NatGateway.NatGatewayId' --output text 2>&1)" \
+      || { err "Regional NAT 생성 실패: $name"; printf '      %s\n' "$e" >&2
+           err "  CLI가 미지원이면 NAT_MODE=zonal bash lab03-network/build.sh 로 실행하십시오."; return 1; }
+    id="$e"
+    ok "Regional NAT 생성 요청: $name ($id) — VPC 전체 자동 확장"
+    save_state "$key" "$id"
+  }
+  mk_rnat "${PREFIX}-rnat-svc"  "$VPC_SVC"  NAT_SVC_A
+  mk_rnat "${PREFIX}-rnat-mgmt" "$VPC_MGMT" NAT_MGMT_A
+  # 같은 NAT ID를 두 AZ가 공유한다. 라우팅 단계에서 동일 ID를 참조하기 위해 별칭을 둔다.
+  save_state NAT_SVC_C  "$NAT_SVC_A"
+  save_state NAT_MGMT_C "$NAT_MGMT_A"
+  NAT_LIST="$NAT_SVC_A $NAT_MGMT_A"
+else
+  mk_nat() { # 이름 퍼블릭서브넷ID 키
+    local name="$1" sn="$2" key="$3" id alloc
+    id="$(natgw_id_by_name "$name")"
+    if [ -n "$id" ]; then skip "NAT $name ($id)"; save_state "$key" "$id"; return 0; fi
+    alloc="$(eip_alloc_by_name "${name}-eip")"
+    if [ -z "$alloc" ]; then
+      alloc="$(aws ec2 allocate-address --domain vpc \
+               --tag-specifications "$(tagspec elastic-ip "${name}-eip" $LAB)" \
+               --query 'AllocationId' --output text)"
+      ok "EIP 할당: ${name}-eip ($alloc)"
+    fi
+    id="$(aws ec2 create-nat-gateway --subnet-id "$sn" --allocation-id "$alloc" \
+          --tag-specifications "$(tagspec natgateway "$name" $LAB)" \
+          --query 'NatGateway.NatGatewayId' --output text)"
+    ok "NAT 생성 요청: $name ($id)"
+    save_state "$key" "$id"
+    save_state "${key}_EIP" "$alloc"
+  }
+  mk_nat "${PREFIX}-nat-svc-a"  "$SN_SVC_PUB_A"  NAT_SVC_A
+  mk_nat "${PREFIX}-nat-svc-c"  "$SN_SVC_PUB_C"  NAT_SVC_C
+  mk_nat "${PREFIX}-nat-mgmt-a" "$SN_MGMT_PUB_A" NAT_MGMT_A
+  mk_nat "${PREFIX}-nat-mgmt-c" "$SN_MGMT_PUB_C" NAT_MGMT_C
+  NAT_LIST="$NAT_SVC_A $NAT_SVC_C $NAT_MGMT_A $NAT_MGMT_C"
+fi
+save_state NAT_MODE_USED "$NAT_MODE"
 
 log "NAT 게이트웨이 available 대기 (수 분 소요)"
-for n in "$NAT_SVC_A" "$NAT_SVC_C" "$NAT_MGMT_A" "$NAT_MGMT_C"; do
+for n in $NAT_LIST; do
   aws ec2 wait nat-gateway-available --nat-gateway-ids "$n" && ok "NAT available: $n"
 done
 

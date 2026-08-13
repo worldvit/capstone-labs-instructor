@@ -19,7 +19,20 @@ trun() { # trun "설명" 기대종료코드 <명령...>
 }
 sec() { printf '\n%s── %s%s\n' "$Y" "$1" "$Z"; }
 
+# ---- 테스트 격리 ----
+# 호출한 셸이 state 파일을 source 했다면 랩 변수가 상속돼 판정이 뒤틀린다.
+# (예: source state/cap.env 후 실행하면 need_state가 항상 통과)
+for v in $(env | grep -oE '^(VPC|SN|SG|RT|NAT|IGW|TGW|VPCE|EFS|ALB|ASG|APP|BASTION|AURORA|BUCKET|SQS|SNS|LAMBDA|APIGW|CLOUDFRONT|WAF|BACKUP|OAC|TRAIL|DASHBOARD|KEYPAIR|AMI_ID|ROLE|PROFILE_EC2|MFA|FLOWLOG|LAB[0-9]+_DONE|ACCOUNT_ID|CAPSTONE_INTERACTIVE|STATE_BUCKET|NAT_MODE_USED)[A-Z0-9_]*=' | cut -d= -f1); do
+  unset "$v" 2>/dev/null || true
+done
+
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# env.sh의 기본 계정을 읽어 온다. 하드코딩하면 계정을 바꿀 때마다 테스트가 깨진다.
+ACCT="$(bash -c ". $HERE/00-common/env.sh; echo \$EXPECTED_ACCOUNT_IDS" 2>/dev/null | cut -d, -f1 | tr -d ' ')"
+: "${ACCT:=676206941602}"
+printf '%s테스트 대상 계정: %s%s\n' "$Y" "$ACCT" "$Z"
+# 목이 돌려줄 기본 계정. 개별 테스트에서 덮어쓸 수 있다.
+export MOCK_ACCOUNT="$ACCT"
 export TESTROOT="$(mktemp -d)"
 cp -r "$HERE/00-common" "$TESTROOT/"
 mkdir -p "$TESTROOT/state"
@@ -146,20 +159,20 @@ sec "8. guard.sh — 오폭 방지"
 # ============================================================
 G_RUN() { bash -c "export AWS_PROFILE=capstone; . $TESTROOT/00-common/env.sh; . $TESTROOT/00-common/lib.sh; . $TESTROOT/00-common/guard.sh; guard" 2>&1; }
 trun "허용 계정이면 통과"       0 bash -c \
-  "export AWS_PROFILE=capstone MOCK_ACCOUNT=676206941602; . $TESTROOT/00-common/env.sh; . $TESTROOT/00-common/lib.sh; . $TESTROOT/00-common/guard.sh; guard"
+  "export AWS_PROFILE=capstone MOCK_ACCOUNT=$ACCT; . $TESTROOT/00-common/env.sh; . $TESTROOT/00-common/lib.sh; . $TESTROOT/00-common/guard.sh; guard"
 trun "허용 목록 밖 계정이면 중단" 1 bash -c \
   "export AWS_PROFILE=capstone MOCK_ACCOUNT=999999999999; . $TESTROOT/00-common/env.sh; . $TESTROOT/00-common/lib.sh; . $TESTROOT/00-common/guard.sh; guard"
 trun "복수 계정 허용 목록 동작" 0 bash -c \
-  "export AWS_PROFILE=capstone MOCK_ACCOUNT=111122223333 EXPECTED_ACCOUNT_IDS='676206941602,111122223333'; . $TESTROOT/00-common/env.sh; . $TESTROOT/00-common/lib.sh; . $TESTROOT/00-common/guard.sh; guard"
+  "export AWS_PROFILE=capstone MOCK_ACCOUNT=111122223333 EXPECTED_ACCOUNT_IDS="$ACCT,111122223333"; . $TESTROOT/00-common/env.sh; . $TESTROOT/00-common/lib.sh; . $TESTROOT/00-common/guard.sh; guard"
 trun "없는 AZ 지정 시 중단"     1 bash -c \
   "export AWS_PROFILE=capstone AZ_C=ap-northeast-2z; . $TESTROOT/00-common/env.sh; . $TESTROOT/00-common/lib.sh; . $TESTROOT/00-common/guard.sh; guard"
 out="$(MOCK_ACCOUNT=999999999999 G_RUN)"
-case "$out" in *999999999999*676206941602*) t "불일치 시 양쪽 계정 표시" yes yes;; *) t "불일치 시 양쪽 계정 표시" yes no;; esac
+case "$out" in *999999999999*"$ACCT"*) t "불일치 시 양쪽 계정 표시" yes yes;; *) t "불일치 시 양쪽 계정 표시" yes no;; esac
 out="$(bash -c "export AWS_PROFILE=default; . $TESTROOT/00-common/env.sh; . $TESTROOT/00-common/lib.sh; . $TESTROOT/00-common/guard.sh; guard" 2>&1)"
 case "$out" in *"기본 프로파일"*) t "기본 프로파일 경고" yes yes;; *) t "기본 프로파일 경고" yes no;; esac
 out="$(G_RUN)"
-case "$out" in *"ACCOUNT_ID"*|*676206941602*) t "guard가 ACCOUNT_ID 노출" yes yes;; *) t "guard가 ACCOUNT_ID 노출" yes no;; esac
-t "guard 후 ACCOUNT_ID 사용 가능" "676206941602" \
+case "$out" in *"ACCOUNT_ID"*|*"$ACCT"*) t "guard가 ACCOUNT_ID 노출" yes yes;; *) t "guard가 ACCOUNT_ID 노출" yes no;; esac
+t "guard 후 ACCOUNT_ID 사용 가능" "$ACCT" \
   "$(bash -c "export AWS_PROFILE=capstone; . $TESTROOT/00-common/env.sh; . $TESTROOT/00-common/lib.sh; . $TESTROOT/00-common/guard.sh; guard >/dev/null; echo \$ACCOUNT_ID")"
 
 # ============================================================
