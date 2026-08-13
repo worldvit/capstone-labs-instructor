@@ -57,7 +57,7 @@ _authz "app-sg 인바운드 8080 from web-sg" "$SG_APP" \
 # Tomcat이 DB 비밀번호를 Secrets Manager에서 직접 읽는다. 파일이나 코드에 남기지 않는다.
 if [ -n "${DB_SECRET_ARN:-}" ]; then
   POL="$(jq -nc --arg a "$DB_SECRET_ARN" \
-    '{Version:"2012-10-17",Statement:[{Effect:"Allow",Action:["secretsmanager:GetSecretValue"],Resource:$a}]}')"
+    '{Version:"2012-10-17",Statement:[{Sid:"ReadDbSecret",Effect:"Allow",Action:["secretsmanager:GetSecretValue"],Resource:$a}]}')"
   aws iam put-role-policy --role-name "$N_ROLE_EC2" \
     --policy-name "${PREFIX}-read-db-secret" --policy-document "$POL" >/dev/null \
     && ok "EC2 역할에 시크릿 읽기 권한 부여 (해당 시크릿만)" \
