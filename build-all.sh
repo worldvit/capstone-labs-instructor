@@ -24,7 +24,7 @@ for i in $(seq "$FROM" "$TO"); do
   t0=$(date +%s)
   if bash "$ROOT_DIR/$d/build.sh"; then
     ok "Lab $i 성공 ($(( $(date +%s) - t0 ))초)"
-    [ "$STATE_SYNC" = "1" ] && state_push "lab$(printf '%02d' "$i") 완료" || true
+    [ "$STATE_SYNC" = "1" ] && state_push "lab$(printf '%02d' "$i")-done" || true
   else
     err "Lab $i 실패 — 중단합니다."
     err "  진단:  bash $d/verify.sh"

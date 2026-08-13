@@ -106,12 +106,18 @@ mk_sg() { # 이름 설명 VPC_ID 키
   else skip "SG $name ($id)"; fi
   save_state "$key" "$id"
 }
-ing_cidr() { aws ec2 authorize-security-group-ingress --group-id "$1" \
-    --ip-permissions "IpProtocol=$2,FromPort=$3,ToPort=$3,IpRanges=[{CidrIp=$4}]" >/dev/null 2>&1 \
-    && ok "  인바운드 $2/$3 from $4" || skip "  인바운드 $2/$3 from $4"; }
-ing_sg()   { aws ec2 authorize-security-group-ingress --group-id "$1" \
-    --ip-permissions "IpProtocol=$2,FromPort=$3,ToPort=$3,UserIdGroupPairs=[{GroupId=$4}]" >/dev/null 2>&1 \
-    && ok "  인바운드 $2/$3 from SG $4" || skip "  인바운드 $2/$3 from SG $4"; }
+# 중복(Duplicate)과 진짜 오류를 구분한다. 구분하지 않으면 실패가 '이미 존재'로 위장된다.
+_authz() { # _authz <설명> <group-id> <ip-permissions>
+  local desc="$1" gid="$2" perm="$3" e
+  e="$(aws ec2 authorize-security-group-ingress --group-id "$gid" --ip-permissions "$perm" 2>&1 >/dev/null)" \
+    && { ok "  $desc"; return 0; }
+  case "$e" in
+    *InvalidPermission.Duplicate*) skip "  $desc"; return 0 ;;
+    *) err "  $desc — 실패"; printf '      %s\n' "$e" >&2; return 1 ;;
+  esac
+}
+ing_cidr() { _authz "인바운드 $2/$3 from $4" "$1" "IpProtocol=$2,FromPort=$3,ToPort=$3,IpRanges=[{CidrIp=$4}]"; }
+ing_sg()   { _authz "인바운드 $2/$3 from SG $4" "$1" "IpProtocol=$2,FromPort=$3,ToPort=$3,UserIdGroupPairs=[{GroupId=$4}]"; }
 
 mk_sg "$N_SG_BASTION" "capstone bastion"    "$VPC_MGMT" SG_BASTION
 mk_sg "$N_SG_ALB"     "capstone ALB"        "$VPC_SVC"  SG_ALB
@@ -129,7 +135,10 @@ fi
 ing_cidr "$SG_ALB" tcp 80  0.0.0.0/0
 ing_cidr "$SG_ALB" tcp 443 0.0.0.0/0
 ing_sg   "$SG_APP" tcp 80   "$SG_ALB"
-ing_sg   "$SG_APP" tcp 22   "$SG_BASTION"      # TGW 경유 Bastion 접속(Lab 5 이후 유효)
+# Bastion은 다른 VPC(관리 VPC)에 있다. 이 시점에는 두 VPC를 잇는 경로가 없어
+# 교차 VPC SG 참조를 만들 수 없으므로 CIDR로 허용한다.
+# Lab 5에서 TGW에 보안 그룹 참조 지원을 켠 뒤 SG 참조로 전환한다.
+ing_cidr "$SG_APP" tcp 22   "$VPC_MGMT_CIDR"
 ing_sg   "$SG_DB"  tcp 3306 "$SG_APP"
 ing_cidr "$SG_VPCE" tcp 443 "$VPC_SVC_CIDR"
 
