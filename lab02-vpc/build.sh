@@ -13,9 +13,23 @@ mk_vpc() { # 이름 CIDR 상태키
     id="$(aws ec2 create-vpc --cidr-block "$cidr" \
           --tag-specifications "$(tagspec vpc "$name" $LAB)" \
           --query 'Vpc.VpcId' --output text)"
-    aws ec2 modify-vpc-attribute --vpc-id "$id" --enable-dns-support >/dev/null
-    aws ec2 modify-vpc-attribute --vpc-id "$id" --enable-dns-hostnames >/dev/null
     ok "VPC 생성: $name ($id) $cidr"
+  fi
+
+  # DNS 속성은 '생성할 때만'이 아니라 '항상' 확인한다.
+  # 이 둘이 꺼져 있으면 EFS·RDS·인터페이스 엔드포인트의 프라이빗 DNS가 해석되지 않는다.
+  local cur
+  cur="$(_q aws ec2 describe-vpc-attribute --vpc-id "$id" --attribute enableDnsSupport \
+         --query 'EnableDnsSupport.Value' --output text)"
+  if [ "$cur" != "True" ]; then
+    aws ec2 modify-vpc-attribute --vpc-id "$id" --enable-dns-support >/dev/null
+    ok "  DNS 지원 활성화 ($name)"
+  fi
+  cur="$(_q aws ec2 describe-vpc-attribute --vpc-id "$id" --attribute enableDnsHostnames \
+         --query 'EnableDnsHostnames.Value' --output text)"
+  if [ "$cur" != "True" ]; then
+    aws ec2 modify-vpc-attribute --vpc-id "$id" --enable-dns-hostnames >/dev/null
+    ok "  DNS 호스트네임 활성화 ($name)"
   fi
   save_state "$key" "$id"
 }
