@@ -68,11 +68,19 @@ state_push() {
   [ -f "$STATE_FILE" ] || { warn "state 파일이 없습니다: $STATE_FILE"; return 1; }
   aws s3api head-bucket --bucket "$b" >/dev/null 2>&1 || state_bucket_ensure
 
-  local ver
+  # S3 메타데이터 값은 US-ASCII만 허용한다. 한글·공백을 안전하게 치환한다.
+  local note_ascii
+  note_ascii="$(printf '%s' "$note" | LC_ALL=C tr -c 'A-Za-z0-9._-' '_' | tr -s '_' | sed 's/^_//;s/_$//' | cut -c1-64)"
+  [ -n "$note_ascii" ] || note_ascii="manual"
+
+  local ver errout
+  errout="$(mktemp)"
   ver="$(aws s3api put-object --bucket "$b" --key "$(state_s3_key)" \
       --body "$STATE_FILE" --content-type text/plain \
-      --metadata "note=${note},host=${HOSTNAME:-$(uname -n 2>/dev/null || echo unknown)},at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      --query VersionId --output text 2>/dev/null)" || { err "업로드 실패"; return 1; }
+      --metadata "note=${note_ascii},host=${HOSTNAME:-unknown},at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --query VersionId --output text 2>"$errout")" \
+    || { err "업로드 실패"; sed 's/^/      /' "$errout" >&2; rm -f "$errout"; return 1; }
+  rm -f "$errout"
   ok "state 백업 완료 → $(state_s3_uri)"
   log "  버전 $ver  ($note)"
   return 0
