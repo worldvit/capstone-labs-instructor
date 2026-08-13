@@ -63,7 +63,8 @@ leak=0
 while IFS= read -r f; do
   warn "유출 의심 파일: ${f#$DEST/}"; leak=$((leak+1))
 done < <(find "$DEST" \( -name 'build*.sh' -o -name 'repair.sh' -o -name 'mock-aws' \
-           -o -name 'test-common.sh' -o -name 'setup-*.sh' -o -name 'publish-student.sh' \) 2>/dev/null)
+           -o -name 'test-common.sh' -o -name 'setup-*.sh' -o -name 'publish-student.sh' \
+           -o -name 'gen-diagram.py' -o -path '*/tools/*' \) 2>/dev/null)
 [ "$leak" -eq 0 ] && ok "유출 검사 통과 — build/repair 계열 없음" \
                   || die "유출 파일 ${leak}건 — 스크립트를 점검하십시오"
 
