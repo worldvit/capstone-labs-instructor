@@ -7,8 +7,15 @@
 # 강사 저장소가 원본(single source of truth)이다.
 # 학생 저장소는 여기서 생성되는 파생물이며 직접 편집하지 않는다.
 #
-# 학생에게 나가는 것 : 00-common, preflight.sh, verify.sh, teardown.sh, 문서
+# 학생에게 나가는 것 : 00-common, preflight.sh, verify.sh, teardown.sh,
+#                      setup-*.sh(플레이스홀더 상태), 문서
 # 학생에게 안 나가는 것: build.sh, repair.sh, build-all.sh, mock-aws, test-common.sh
+#
+# setup-*.sh 를 내보내는 이유:
+#   따라하기형 실습 문서가 이 스크립트를 sed 로 치환해 쓰도록 설계되어 있다.
+#   JSP·nginx.conf·CloudWatch Agent JSON 은 따옴표와 중괄호가 많아
+#   문서에 전문을 싣고 학생이 복사하면 반드시 어긋난다.
+#   대신 값이 박히지 않았는지(플레이스홀더 유지) 5단계에서 검사한다.
 # ============================================================
 set -euo pipefail
 
@@ -53,20 +60,42 @@ for d in "$SRC"/lab*/; do
   for f in verify.sh teardown.sh analyze.sh loadtest.sh; do
     [ -f "$d/$f" ] && cp "$d/$f" "$DEST/$lab/"
   done
-  # setup-*.sh 는 build.sh 가 쓰는 구성 스크립트다. 학생에게 내보내지 않는다.
+  # setup-*.sh : 따라하기형 문서가 sed 로 치환해 쓰는 구성 스크립트
+  #              플레이스홀더 상태 그대로 내보낸다(값은 학생이 채운다)
+  for f in "$d"setup-*.sh; do
+    [ -f "$f" ] && cp "$f" "$DEST/$lab/"
+  done
   n=$((n+1))
 done
-ok "랩 ${n}개의 verify.sh / teardown.sh / analyze.sh / loadtest.sh 복사"
+ok "랩 ${n}개의 verify / teardown / analyze / loadtest / setup 복사"
 
 # ---------- 5. 유출 검사 ----------
 leak=0
 while IFS= read -r f; do
   warn "유출 의심 파일: ${f#$DEST/}"; leak=$((leak+1))
 done < <(find "$DEST" \( -name 'build*.sh' -o -name 'repair.sh' -o -name 'mock-aws' \
-           -o -name 'test-common.sh' -o -name 'setup-*.sh' -o -name 'publish-student.sh' \
+           -o -name 'test-common.sh' -o -name 'publish-student.sh' \
            -o -name 'gen-diagram.py' -o -path '*/tools/*' \) 2>/dev/null)
 [ "$leak" -eq 0 ] && ok "유출 검사 통과 — build/repair 계열 없음" \
                   || die "유출 파일 ${leak}건 — 스크립트를 점검하십시오"
+
+# ---------- 5-2. setup-*.sh 값 박힘 검사 ----------
+# setup 스크립트는 내보내되, 실제 계정번호·엔드포인트·시크릿이
+# 치환된 채로 나가면 안 된다. 플레이스홀더가 살아 있는지 확인한다.
+baked=0
+while IFS= read -r f; do
+  rel="${f#$DEST/}"
+  # 플레이스홀더가 하나도 없으면 이미 치환된 파일이다
+  if ! grep -qE '__[A-Z_]+__' "$f"; then
+    warn "플레이스홀더 없음(치환된 파일 의심): $rel"; baked=$((baked+1))
+  fi
+  # 실제 값이 박혀 있으면 즉시 중단
+  if grep -qE '[0-9]{12}|\.rds\.amazonaws\.com|fs-[0-9a-f]{8,}|vpce-[0-9a-f]{8,}' "$f"; then
+    warn "실제 값 박힘: $rel"; baked=$((baked+1))
+  fi
+done < <(find "$DEST" -name 'setup-*.sh' 2>/dev/null)
+[ "$baked" -eq 0 ] && ok "setup 스크립트 검사 통과 — 플레이스홀더 유지" \
+                   || die "setup 스크립트 ${baked}건 이상 — 값이 박힌 채 나갑니다"
 
 # ---------- 6. 학생용 부속 파일 ----------
 cat > "$DEST/.gitattributes" << 'EOF'
@@ -141,6 +170,37 @@ MINUTES=360 bash lab09-observability/analyze.sh   # 기간 넓히기
 
 각 항목은 "무엇을 묻는가 → 어떻게 묻는가 → 무엇을 읽어내는가" 순으로 나옵니다.
 데이터가 비어 있으면 트래픽을 만든 뒤 3~5분 기다리십시오.
+
+## 서버 구성 스크립트 (setup-*.sh)
+
+일부 랩에는 `setup-` 로 시작하는 스크립트가 들어 있습니다.
+Tomcat·nginx·CloudWatch Agent 설정처럼 따옴표와 중괄호가 많아
+문서에 옮겨 적으면 반드시 어긋나는 것들입니다.
+
+| 랩 | 스크립트 | 채워야 할 값 |
+|---|---|---|
+| lab08b-3tier | setup-tomcat.sh | 리전, DB 엔드포인트·포트·이름, 시크릿 ARN |
+| lab08b-3tier | setup-nginx.sh | App 서버 업스트림 목록 |
+| lab09-observability | setup-cwagent.sh | 로그 그룹 이름, 역할 |
+| lab10-alb-asg | setup-app-node.sh | 위 항목 + EFS ID |
+
+이 파일들은 `__DB_ENDPOINT__` 같은 **빈칸 상태로 배포**됩니다.
+실습 문서가 안내하는 `sed` 명령으로 본인 계정의 값을 채워 쓰십시오.
+
+```bash
+# 어떤 빈칸이 있는지 먼저 봅니다
+grep -oE '__[A-Z_]+__' lab08b-3tier/setup-tomcat.sh | sort -u
+
+# 스크립트가 무엇을 하는지 읽어 봅니다 — 그대로 실행하지 마십시오
+less lab08b-3tier/setup-tomcat.sh
+```
+
+**빈칸을 채우지 않고 실행하면 서버가 뜨지 않습니다.** 그것이 정상입니다.
+어떤 값이 어디에 쓰이는지 이해하는 것이 이 랩의 목적입니다.
+
+<!-- 강사 메모: 비밀번호는 스크립트에 넣지 않습니다. 시크릿 ARN 만 넣고
+     애플리케이션이 실행 시점에 Secrets Manager 에서 직접 읽습니다. -->
+
 
 ## 다른 PC에서 이어하기
 
