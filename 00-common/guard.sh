@@ -16,8 +16,22 @@ guard() {
   arn="$(printf '%s' "$caller" | jq -r '.Arn')"
   export ACCOUNT_ID="$acct"
 
+  # 계정번호를 적지 않은 채 실행하면 엉뚱한 계정에 리소스를 만들 수 있다.
+  # 비어 있으면 만들기 전에 멈춘다.
+  if [ -z "${EXPECTED_ACCOUNT_IDS:-}" ]; then
+    err "EXPECTED_ACCOUNT_IDS 가 비어 있습니다 — 실행을 중단합니다."
+    log "  본인 계정번호를 확인하십시오:"
+    log "    aws sts get-caller-identity --query Account --output text"
+    log "  그 값을 student.env 에 적으십시오:"
+    log "    export EXPECTED_ACCOUNT_IDS=$acct"
+    log "  또는 이번 한 번만 넘기려면:"
+    log "    EXPECTED_ACCOUNT_IDS=$acct bash build-all.sh 1"
+    die "안전을 위해 중단합니다." || return 1
+  fi
+
   local matched=0 want
-  IFS=',' read -ra want <<< "$EXPECTED_ACCOUNT_IDS"
+  # 쉼표와 공백을 모두 구분자로 받는다.
+  IFS=', ' read -ra want <<< "$EXPECTED_ACCOUNT_IDS"
   for w in "${want[@]}"; do
     [ "$acct" = "$(echo "$w" | tr -d ' ')" ] && matched=1 || true
   done

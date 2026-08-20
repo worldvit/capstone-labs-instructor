@@ -23,7 +23,10 @@ export AWS_PAGER=""                              # 페이저 때문에 스크립
 
 # 이 계정에서만 실행을 허용한다. guard.sh가 대조한다.
 # 여러 계정에서 쓰려면 콤마로 나열: "676206941602,111122223333"
-export EXPECTED_ACCOUNT_IDS="${EXPECTED_ACCOUNT_IDS:-454015599543}"
+# 학생마다 계정이 다르므로 기본값을 두지 않는다.
+# student.env 에 본인 계정번호를 적거나 환경 변수로 넘긴다.
+#   export EXPECTED_ACCOUNT_IDS=123456789012
+export EXPECTED_ACCOUNT_IDS="${EXPECTED_ACCOUNT_IDS:-}"
 
 # ---------- 명명 접두사 ----------
 # 공유 계정에서 학생별로 격리할 때:  PREFIX=st01 bash build-all.sh 5
