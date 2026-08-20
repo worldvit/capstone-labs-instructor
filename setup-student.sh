@@ -94,7 +94,9 @@ else
   ok ".bashrc 에 등록 — CloudShell 을 다시 열어도 유지됩니다."
 fi
 
-# ---------- 6. 지금 세션에 적용 ----------
+# ---------- 6. 값 확인용으로만 읽는다 ----------
+# 여기서 source 해도 이 스크립트(자식 셸) 안에서만 유효하다.
+# 부모 셸에 적용하려면 사용자가 직접 source 해야 한다.
 # shellcheck disable=SC1091
 . ./student.env
 
@@ -107,9 +109,13 @@ printf '  접두사     %s\n' "$PREFIX"
 printf '  서비스 VPC 10.%s.0.0/16\n' "$STUDENT_BASE"
 printf '  관리 VPC   10.%s.0.0/16\n' "$((STUDENT_BASE + 1))"
 
-printf '\n%s다음 단계%s\n' "$C_Y" "$C_0"
+printf '\n%s⚠ 반드시 지금 실행하십시오%s\n' "$C_R" "$C_0"
+printf '  이 스크립트는 별도 셸에서 돌았으므로 지금 셸에는 값이 없습니다.\n\n'
+printf '    %ssource student.env%s\n\n' "$C_G" "$C_0"
+printf '  (CloudShell 을 다시 열 때는 .bashrc 가 알아서 읽습니다)\n'
+
+printf '\n%s그다음%s\n' "$C_Y" "$C_0"
 cat << NEXT
-  source student.env          # 지금 셸에 적용 (이 스크립트가 이미 했습니다)
   bash preflight.sh           # 사전 점검
 
   실습은 문서를 보며 콘솔로 진행하십시오.
