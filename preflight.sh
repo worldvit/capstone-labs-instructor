@@ -31,10 +31,22 @@ row() { # row "항목" "상태" "설명"
 }
 
 # ---------- 1. 필수 도구 ----------
-for c in aws jq curl zip; do
+# CloudShell 에는 모두 들어 있다. 다른 환경에서 돌릴 때를 위해 확인한다.
+#   aws jq curl zip : 리소스 생성과 압축
+#   python3         : Secrets Manager JSON 파싱 (Lab 8 · 12)
+#   git             : 저장소 내려받기
+#   awk             : 태그 개수 합산 (Lab 13)
+MISSING=""
+for c in aws jq curl zip python3 git awk; do
   if command -v "$c" >/dev/null 2>&1; then row "$c" ok "$(command -v "$c")"
-  else row "$c" fail "설치 필요"; fi
+  else row "$c" fail "설치 필요"; MISSING="$MISSING $c"; fi
 done
+if [ -n "${MISSING// /}" ]; then
+  printf '\n  %s설치 명령%s\n' "${C_Y:-}" "${C_0:-}"
+  printf '    Amazon Linux / RHEL : sudo dnf install -y%s\n' "$MISSING"
+  printf '    Ubuntu / Debian     : sudo apt-get install -y%s\n' "$MISSING"
+  printf '    (aws 는 별도 설치: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)\n\n'
+fi
 v="$(aws --version 2>&1 | awk '{print $1}')"
 case "$v" in aws-cli/2.*) row "AWS CLI 버전" ok "$v" ;; *) row "AWS CLI 버전" warn "$v (v2 권장)" ;; esac
 
